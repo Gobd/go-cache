@@ -8,21 +8,22 @@ times, it doesn't need to serialize or transmit its contents over the network.
 Any object can be stored, for a given duration or forever, and the cache can be
 safely used by multiple goroutines.
 
-Although go-cache isn't meant to be used as a persistent datastore, the entire
-cache can be saved to and loaded from a file (using `c.Items()` to retrieve the
-items map to serialize, and `NewFrom()` to create a cache from a deserialized
-one) to recover from downtime quickly. (See the docs for `NewFrom()` for caveats.)
+Removed increment, decrement, save, load, newfrom. Added a `NewLazy` function
+that creates a cache that only updates `time.Now()` every `timeNowInterval`
+might be faster than the original or not. The benchmarks in the package show
+it to be generally faster but sometimes slower. Other benchmarks written to be
+more realistic show it 133x faster. Hasn't been in production so not really sure.
 
 ### Installation
 
-`go get github.com/patrickmn/go-cache`
+`go get github.com/Gobd/go-cache`
 
 ### Usage
 
 ```go
 import (
 	"fmt"
-	"github.com/patrickmn/go-cache"
+	"github.com/Gobd/go-cache"
 	"time"
 )
 
@@ -80,4 +81,4 @@ func main() {
 
 ### Reference
 
-`godoc` or [http://godoc.org/github.com/patrickmn/go-cache](http://godoc.org/github.com/patrickmn/go-cache)
+`godoc` or [http://godoc.org/github.com/Gobd/go-cache](http://godoc.org/github.com/Gobd/go-cache)
