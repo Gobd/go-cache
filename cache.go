@@ -310,7 +310,7 @@ func New(defaultExpiration, cleanupInterval time.Duration) *Cache {
 // Return a new cache with a given default expiration duration, cleanup,
 // and time.Now() interval. This will calculate time.Now() every timeNowInterval
 // rather than on every set & get. This means items won't be evicted as quickly
-// but results in much better performance. If the expiration duration is less
+// but results in possibly performance. If the expiration duration is less
 // than one (or NoExpiration), the items in the cache never expire (by default),
 // and must be deleted manually. If the cleanup interval is less than one,
 // expired items are not deleted from the cache before calling c.DeleteExpired().
