@@ -1,7 +1,6 @@
 package cache
 
 import (
-	"fmt"
 	"runtime"
 	"sync"
 	"time"
@@ -70,42 +69,10 @@ func (c *cache) Set(k interface{}, x interface{}, d time.Duration) {
 	c.items[idx].Unlock()
 }
 
-func (c *cache) set(k interface{}, x interface{}, d time.Duration) {
-	var e int64
-	if d == DefaultExpiration {
-		d = c.defaultExpiration
-	}
-	if d > 0 {
-		e = nanoTime() + d.Nanoseconds()
-	}
-	key := keyToHash(k)
-	idx := key % numShards
-	c.items[idx].data[keyToHash(k)] = item{
-		Object:     x,
-		Expiration: e,
-	}
-}
-
 // Add an item to the cache, replacing any existing item, using the default
 // expiration.
 func (c *cache) SetDefault(k interface{}, x interface{}) {
 	c.Set(k, x, c.defaultExpiration)
-}
-
-// Add an item to the cache only if an item doesn't already exist for the given
-// key, or if the existing item has expired. Returns an error otherwise.
-func (c *cache) Add(k interface{}, x interface{}, d time.Duration) error {
-	key := keyToHash(k)
-	idx := key % numShards
-	c.items[idx].Lock()
-	_, found := c.get(k)
-	if found {
-		c.items[idx].Unlock()
-		return fmt.Errorf("item %s already exists", k)
-	}
-	c.set(k, x, d)
-	c.items[idx].Unlock()
-	return nil
 }
 
 // Get an item from the cache. Returns the item or nil, and a bool indicating
@@ -127,55 +94,6 @@ func (c *cache) Get(k interface{}) (value interface{}, ok bool) {
 		}
 	}
 	c.items[idx].RUnlock()
-	return item.Object, true
-}
-
-// GetWithExpiration returns an item and its expiration time from the cache.
-// It returns the item or nil, the expiration time if one is set (if the item
-// never expires a zero value for time.Time is returned), and a bool indicating
-// whether the key was found.
-func (c *cache) GetWithExpiration(k interface{}) (value interface{}, exp time.Time, ok bool) {
-	key := keyToHash(k)
-	idx := key % numShards
-	c.items[idx].RLock()
-	// "Inlining" of get and Expired
-	item, found := c.items[idx].data[key]
-	if !found {
-		c.items[idx].RUnlock()
-		return
-	}
-
-	if item.Expiration > 0 {
-		if nanoTime() > item.Expiration {
-			c.items[idx].RUnlock()
-			return
-		}
-
-		// Return the item and the expiration time
-		c.items[idx].RUnlock()
-		return item.Object, time.Unix(0, item.Expiration), true
-	}
-
-	// If expiration <= 0 (i.e. no expiration time set) then return the item
-	// and a zeroed time.Time
-	c.items[idx].RUnlock()
-	return item.Object, time.Time{}, true
-}
-
-func (c *cache) get(k interface{}) (value interface{}, ok bool) {
-	key := keyToHash(k)
-	idx := key % numShards
-
-	item, found := c.items[idx].data[key]
-	if !found {
-		return
-	}
-	// "Inlining" of Expired
-	if item.Expiration > 0 {
-		if nanoTime() > item.Expiration {
-			return
-		}
-	}
 	return item.Object, true
 }
 

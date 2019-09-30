@@ -178,22 +178,10 @@ func (g *Generator) Funcs() map[string]func(*ast.FuncDecl) {
 		"Set": func(f *ast.FuncDecl) {
 			g.replaceItem(f.Type.Params)
 		},
-		"set": func(f *ast.FuncDecl) {
-			g.replaceItem(f.Type.Params)
-		},
 		"SetDefault": func(f *ast.FuncDecl) {
 			g.replaceItem(f.Type.Params)
 		},
-		"Add": func(f *ast.FuncDecl) {
-			g.replaceItem(f.Type.Params)
-		},
 		"Get": func(f *ast.FuncDecl) {
-			g.replaceItem(f.Type.Results)
-		},
-		"GetWithExpiration": func(f *ast.FuncDecl) {
-			g.replaceItem(f.Type.Results)
-		},
-		"get": func(f *ast.FuncDecl) {
 			g.replaceItem(f.Type.Results)
 		},
 		"Delete":              nop,

@@ -10,7 +10,7 @@ safely used by multiple goroutines.
 
 # Changes from the original
 
-Removed increment, decrement, replace, save, load, newfrom.
+Removed Increment, Decrement, Add, GetWithExpiration, Replace, Save, Load, Newfrom.
 
 Keys are now interfaces rather than strings. These will be internally hashed with
 code from Ristretto into a uint64. Previously the cache map was map[string]interface{}
@@ -19,10 +19,21 @@ with the hopes of reducing lock contention.
 
 There is a (poorly tested) code generator in the gen folder that can create typed caches. To see help
 run `go run ./gen/gen.go -h`. As an example this will create a stringCache.go file in a
-package named cache that is cache of string (and the item stored in the cache will be called stringItem):
-`go run ./gen/gen.go -o stringCache.go -pkg cache -name string string`. Normally name & the item to be cached
+package named cache that is cache of string (and the item stored in the cache will be called stringZItem):
+`go run ./gen/gen.go -o stringCache.go -pkg cache -name stringZ string`. Normally name & the item to be cached
 can match, but if caching something like `map[string]interface{}` then the name can't match
 the item being cached.
+
+
+patrickmn/go-cache vs Gobd/go-cache
+```
+CacheGetManyConcurrentExpiring-8     54.4ns ± 1%  52.3ns ± 1%   -3.95%  (p=0.000 n=19+17)
+CacheGetManyConcurrentNotExpiring-8  72.8ns ± 2%  62.7ns ± 3%  -13.94%  (p=0.000 n=16+20)
+```
+
+Gobd/go-cache is always faster than the original, and marginally slower then the original
+sharded implementation on `CacheGetManyConcurrentNotExpiring`. Allocations aren't shown
+because they are 0 for all.
 
 ### Installation
 
