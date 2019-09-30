@@ -168,19 +168,6 @@ func TestAdd(t *testing.T) {
 	}
 }
 
-func TestReplace(t *testing.T) {
-	tc := New(DefaultExpiration, 0)
-	err := tc.Replace("foo", "bar", DefaultExpiration)
-	if err == nil {
-		t.Error("Replaced foo when it shouldn't exist")
-	}
-	tc.Set("foo", "bar", DefaultExpiration)
-	err = tc.Replace("foo", "bar", DefaultExpiration)
-	if err != nil {
-		t.Error("Couldn't replace existing key foo")
-	}
-}
-
 func TestDelete(t *testing.T) {
 	tc := New(DefaultExpiration, 0)
 	tc.Set("foo", "bar", DefaultExpiration)
@@ -335,11 +322,9 @@ func BenchmarkCacheSetDelete(b *testing.B) {
 func BenchmarkDeleteExpiredLoop(b *testing.B) {
 	b.StopTimer()
 	tc := New(5*time.Minute, time.Second)
-	tc.mu.Lock()
 	for i := 0; i < 100000; i++ {
 		tc.set(strconv.Itoa(i), "bar", DefaultExpiration)
 	}
-	tc.mu.Unlock()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		tc.DeleteExpired()
@@ -456,11 +441,9 @@ func BenchmarkLazyCacheSetDelete(b *testing.B) {
 func BenchmarkLazyDeleteExpiredLoop(b *testing.B) {
 	b.StopTimer()
 	tc := NewLazy(5*time.Minute, time.Second, time.Second*2)
-	tc.mu.Lock()
 	for i := 0; i < 100000; i++ {
 		tc.set(strconv.Itoa(i), "bar", DefaultExpiration)
 	}
-	tc.mu.Unlock()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
 		tc.DeleteExpired()
@@ -552,7 +535,9 @@ func TestGetWithExpiration(t *testing.T) {
 	} else if e2 := x.(int); e2+2 != 3 {
 		t.Error("e (which should be 1) plus 2 does not equal 3; value:", e2)
 	}
-	if expiration.UnixNano() != tc.items[keyToHash("e")].Expiration {
+	key := keyToHash("e")
+	idx := key % numShards
+	if expiration.UnixNano() != tc.items[idx].data[key].Expiration {
 		t.Error("expiration for e is not the correct time")
 	}
 	if expiration.UnixNano() < time.Now().UnixNano() {

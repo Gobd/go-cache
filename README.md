@@ -10,19 +10,22 @@ safely used by multiple goroutines.
 
 # Changes from the original
 
-Removed increment, decrement, save, load, newfrom. Added a `NewLazy` function
+Removed increment, decrement, replace, save, load, newfrom. Added a `NewLazy` function
 that creates a cache that only updates `time.Now()` every `timeNowInterval`
 might be faster than the original or not. The benchmarks in the package show
-it to be generally faster but sometimes slower. Other benchmarks written to be
-more realistic show it 133x faster. Hasn't been in production so not really sure.
+it to be generally faster but sometimes slower. Hasn't been in production so not really sure.
 
 Keys are now interfaces rather than strings. These will be internally hashed with
 code from Ristretto into a uint64. Previously the cache map was map[string]interface{}
-now it is map[uint64]interface{}.
+now it is map[uint64]interface{}. The cache map is also split into 256 shards now,
+with the hopes of reducing lock contention.
 
-There is a code generator in the gen folder that can create typed caches. To see help
+There is a (poorly tested) code generator in the gen folder that can create typed caches. To see help
 run `go run ./gen/gen.go -h`. As an example this will create a stringCache.go file in a
-package named cache that is cache of string: `go run ./gen/gen.go -o stringCache.go -pkg cache string`
+package named cache that is cache of string (and the item stored in the cache will be called stringItem):
+`go run ./gen/gen.go -o stringCache.go -pkg cache -name string string`. Normally name & the item to be cached
+can match, but if caching something like `map[string]interface{}` then the name can't match
+the item being cached.
 
 ### Installation
 

@@ -5,7 +5,13 @@ import (
 	"runtime"
 	"sync"
 	"time"
+	"unsafe"
 )
+
+type lockedMap struct {
+	sync.RWMutex
+	data map[uint64]item
+}
 
 type item struct {
 	Object     interface{}
@@ -21,6 +27,7 @@ func (item item) Expired() bool {
 }
 
 const (
+	numShards uint64 = 256
 	// For use with functions that take an expiration time.
 	NoExpiration time.Duration = -1
 	// For use with functions that take an expiration time. Equivalent to
@@ -37,8 +44,7 @@ type Cache struct {
 type cache struct {
 	defaultExpiration time.Duration
 	now               func() time.Time
-	items             map[uint64]item
-	mu                sync.RWMutex
+	items             []*lockedMap
 	janitor           *janitor
 }
 
@@ -68,14 +74,16 @@ func (c *cache) Set(k interface{}, x interface{}, d time.Duration) {
 	if d > 0 {
 		e = c.now().Add(d).UnixNano()
 	}
-	c.mu.Lock()
-	c.items[keyToHash(k)] = item{
+	key := keyToHash(k)
+	idx := key % numShards
+	c.items[idx].Lock()
+	c.items[idx].data[key] = item{
 		Object:     x,
 		Expiration: e,
 	}
 	// TODO: Calls to mu.Unlock are currently not deferred because defer
 	// adds ~200 ns (as of go1.)
-	c.mu.Unlock()
+	c.items[idx].Unlock()
 }
 
 func (c *cache) set(k interface{}, x interface{}, d time.Duration) {
@@ -86,7 +94,9 @@ func (c *cache) set(k interface{}, x interface{}, d time.Duration) {
 	if d > 0 {
 		e = c.now().Add(d).UnixNano()
 	}
-	c.items[keyToHash(k)] = item{
+	key := keyToHash(k)
+	idx := key % numShards
+	c.items[idx].data[keyToHash(k)] = item{
 		Object:     x,
 		Expiration: e,
 	}
@@ -101,48 +111,38 @@ func (c *cache) SetDefault(k interface{}, x interface{}) {
 // Add an item to the cache only if an item doesn't already exist for the given
 // key, or if the existing item has expired. Returns an error otherwise.
 func (c *cache) Add(k interface{}, x interface{}, d time.Duration) error {
-	c.mu.Lock()
+	key := keyToHash(k)
+	idx := key % numShards
+	c.items[idx].Lock()
 	_, found := c.get(k)
 	if found {
-		c.mu.Unlock()
+		c.items[idx].Unlock()
 		return fmt.Errorf("item %s already exists", k)
 	}
 	c.set(k, x, d)
-	c.mu.Unlock()
-	return nil
-}
-
-// Set a new value for the cache key only if it already exists, and the existing
-// item hasn't expired. Returns an error otherwise.
-func (c *cache) Replace(k interface{}, x interface{}, d time.Duration) error {
-	c.mu.Lock()
-	_, found := c.get(k)
-	if !found {
-		c.mu.Unlock()
-		return fmt.Errorf("item %s doesn't exist", k)
-	}
-	c.set(k, x, d)
-	c.mu.Unlock()
+	c.items[idx].Unlock()
 	return nil
 }
 
 // Get an item from the cache. Returns the item or nil, and a bool indicating
 // whether the key was found.
 func (c *cache) Get(k interface{}) (value interface{}, ok bool) {
-	c.mu.RLock()
+	key := keyToHash(k)
+	idx := key % numShards
+	c.items[idx].RLock()
 	// "Inlining" of get and Expired
-	item, found := c.items[keyToHash(k)]
+	item, found := c.items[idx].data[key]
 	if !found {
-		c.mu.RUnlock()
+		c.items[idx].RUnlock()
 		return
 	}
 	if item.Expiration > 0 {
 		if c.now().UnixNano() > item.Expiration {
-			c.mu.RUnlock()
+			c.items[idx].RUnlock()
 			return
 		}
 	}
-	c.mu.RUnlock()
+	c.items[idx].RUnlock()
 	return item.Object, true
 }
 
@@ -151,33 +151,38 @@ func (c *cache) Get(k interface{}) (value interface{}, ok bool) {
 // never expires a zero value for time.Time is returned), and a bool indicating
 // whether the key was found.
 func (c *cache) GetWithExpiration(k interface{}) (value interface{}, exp time.Time, ok bool) {
-	c.mu.RLock()
+	key := keyToHash(k)
+	idx := key % numShards
+	c.items[idx].RLock()
 	// "Inlining" of get and Expired
-	item, found := c.items[keyToHash(k)]
+	item, found := c.items[idx].data[key]
 	if !found {
-		c.mu.RUnlock()
+		c.items[idx].RUnlock()
 		return
 	}
 
 	if item.Expiration > 0 {
 		if c.now().UnixNano() > item.Expiration {
-			c.mu.RUnlock()
+			c.items[idx].RUnlock()
 			return
 		}
 
 		// Return the item and the expiration time
-		c.mu.RUnlock()
+		c.items[idx].RUnlock()
 		return item.Object, time.Unix(0, item.Expiration), true
 	}
 
 	// If expiration <= 0 (i.e. no expiration time set) then return the item
 	// and a zeroed time.Time
-	c.mu.RUnlock()
+	c.items[idx].RUnlock()
 	return item.Object, time.Time{}, true
 }
 
 func (c *cache) get(k interface{}) (value interface{}, ok bool) {
-	item, found := c.items[keyToHash(k)]
+	key := keyToHash(k)
+	idx := key % numShards
+
+	item, found := c.items[idx].data[key]
 	if !found {
 		return
 	}
@@ -192,38 +197,47 @@ func (c *cache) get(k interface{}) (value interface{}, ok bool) {
 
 // Delete an item from the cache. Does nothing if the key is not in the cache.
 func (c *cache) Delete(k interface{}) {
-	c.mu.Lock()
-	delete(c.items, keyToHash(k))
-	c.mu.Unlock()
+	key := keyToHash(k)
+	idx := key % numShards
+	c.items[idx].Lock()
+	delete(c.items[idx].data, keyToHash(k))
+	c.items[idx].Unlock()
 }
 
 // Delete all expired items from the cache.
 func (c *cache) DeleteExpired() {
 	now := c.now().UnixNano()
-	c.mu.Lock()
-	for k, v := range c.items {
-		// "Inlining" of expired
-		if v.Expiration > 0 && now > v.Expiration {
-			delete(c.items, k)
+	for i := range c.items {
+		c.items[i].Lock()
+		for j := range c.items[i].data {
+			// "Inlining" of expired
+			if c.items[i].data[j].Expiration > 0 && now > c.items[i].data[j].Expiration {
+				delete(c.items[i].data, j)
+			}
 		}
+		c.items[i].Unlock()
 	}
-	c.mu.Unlock()
 }
 
 // Returns the number of items in the cache. This may include items that have
 // expired, but have not yet been cleaned up.
 func (c *cache) ItemCount() int {
-	c.mu.RLock()
-	n := len(c.items)
-	c.mu.RUnlock()
+	var n int
+	for i := range c.items {
+		c.items[i].RLock()
+		n += len(c.items[i].data)
+		c.items[i].RUnlock()
+	}
 	return n
 }
 
 // Delete all items from the cache.
 func (c *cache) Flush() {
-	c.mu.Lock()
-	c.items = map[uint64]item{}
-	c.mu.Unlock()
+	for i := range c.items {
+		c.items[i].Lock()
+		c.items[i].data = make(map[uint64]item)
+		c.items[i].Unlock()
+	}
 }
 
 type janitor struct {
@@ -257,14 +271,18 @@ func runJanitor(c *cache, ci time.Duration) {
 	go j.Run(c)
 }
 
-func newCache(de time.Duration, ti time.Duration, m map[uint64]item) *cache {
+func newCache(de time.Duration, ti time.Duration) *cache {
 	if de == 0 {
 		de = -1
 	}
 	c := &cache{
 		defaultExpiration: de,
-		items:             m,
 	}
+	sm := make([]*lockedMap, int(numShards))
+	for i := range sm {
+		sm[i] = &lockedMap{data: make(map[uint64]item)}
+	}
+	c.items = sm
 	if ti <= 0 {
 		c.now = time.Now
 	} else {
@@ -277,8 +295,8 @@ func newCache(de time.Duration, ti time.Duration, m map[uint64]item) *cache {
 	return c
 }
 
-func newCacheWithJanitor(de time.Duration, ci time.Duration, ti time.Duration, m map[uint64]item) *Cache {
-	c := newCache(de, ti, m)
+func newCacheWithJanitor(de time.Duration, ci time.Duration, ti time.Duration) *Cache {
+	c := newCache(de, ti)
 	// This trick ensures that the janitor goroutine (which--granted it
 	// was enabled--is running DeleteExpired on c forever) does not keep
 	// the returned C object from being garbage collected. When it is
@@ -298,8 +316,7 @@ func newCacheWithJanitor(de time.Duration, ci time.Duration, ti time.Duration, m
 // manually. If the cleanup interval is less than one, expired items are not
 // deleted from the cache before calling c.DeleteExpired().
 func New(defaultExpiration, cleanupInterval time.Duration) *Cache {
-	items := make(map[uint64]item)
-	return newCacheWithJanitor(defaultExpiration, cleanupInterval, 0, items)
+	return newCacheWithJanitor(defaultExpiration, cleanupInterval, 0)
 }
 
 // Return a new cache with a given default expiration duration, cleanup,
@@ -310,6 +327,56 @@ func New(defaultExpiration, cleanupInterval time.Duration) *Cache {
 // and must be deleted manually. If the cleanup interval is less than one,
 // expired items are not deleted from the cache before calling c.DeleteExpired().
 func NewLazy(defaultExpiration, cleanupInterval, timeNowInterval time.Duration) *Cache {
-	items := make(map[uint64]item)
-	return newCacheWithJanitor(defaultExpiration, cleanupInterval, timeNowInterval, items)
+	return newCacheWithJanitor(defaultExpiration, cleanupInterval, timeNowInterval)
+}
+
+// functions below taken from https://github.com/dgraph-io/ristretto
+
+type stringStruct struct {
+	str unsafe.Pointer
+	len int
+}
+
+//go:noescape
+//go:linkname memhash runtime.memhash
+func memhash(p unsafe.Pointer, h, s uintptr) uintptr
+
+// memHash is the hash function used by go map, it utilizes available hardware instructions(behaves
+// as aeshash if aes instruction is available).
+// NOTE: The hash seed changes for every process. So, this cannot be used as a persistent hash.
+func memHash(data []byte) uint64 {
+	ss := (*stringStruct)(unsafe.Pointer(&data))
+	return uint64(memhash(ss.str, 0, uintptr(ss.len)))
+}
+
+// stringStruct is the hash function used by go map, it utilizes available hardware instructions
+// (behaves as aeshash if aes instruction is available).
+// NOTE: The hash seed changes for every process. So, this cannot be used as a persistent hash.
+func memHashString(str string) uint64 {
+	ss := (*stringStruct)(unsafe.Pointer(&str))
+	return uint64(memhash(ss.str, 0, uintptr(ss.len)))
+}
+
+// KeyToHash interprets the type of key and converts it to a uint64 hash.
+func keyToHash(key interface{}) uint64 {
+	switch k := key.(type) {
+	case uint64:
+		return k
+	case string:
+		return memHashString(k)
+	case []byte:
+		return memHash(k)
+	case byte:
+		return memHash([]byte{k})
+	case int:
+		return uint64(k)
+	case int32:
+		return uint64(k)
+	case uint32:
+		return uint64(k)
+	case int64:
+		return uint64(k)
+	default:
+		panic("Key type not supported")
+	}
 }

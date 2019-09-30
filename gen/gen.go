@@ -22,6 +22,7 @@ import (
 var (
 	out   = flag.String("o", "", "")
 	pkg   = flag.String("pkg", "main", "")
+	name  = flag.String("name", "", "")
 	usage = `Usage: go run ./gen/gen.go [options...] cacheType
 
 Options:
@@ -29,6 +30,9 @@ Options:
              will be derived from the map type.
   -pkg       Package name to use in the generated code. If none is
              specified, the name will be main.
+  -name      Name of the struct that will be cached. Can almost always
+             match the name of the cached item. Cases where a map is cached
+             is a good example of when this must be different.
 `
 )
 
@@ -48,9 +52,10 @@ func main() {
 // Generator generates the typed cache object.
 type Generator struct {
 	// flag options.
-	pkg string // package name.
-	out string // file name.
-	key string // map key type.
+	pkg  string // package name.
+	out  string // file name.
+	key  string // cache type.
+	name string // struct name
 	// mutation state and traversal handlers.
 	file  *ast.File
 	fset  *token.FileSet
@@ -65,14 +70,18 @@ func NewGenerator() (g *Generator, err error) {
 		fset: token.NewFileSet(),
 		pkg:  *pkg,
 		out:  *out,
+		name: *name,
 		key:  os.Args[len(os.Args)-1],
 	}
 	g.funcs = g.Funcs()
 	g.types = g.Types()
 	_, err = parser.ParseExpr(g.key)
 	check(err, "parse expr: %s", g.key)
+	if g.name == "" {
+		panic("name must not be empty")
+	}
 	if g.out == "" {
-		g.out = strings.ToLower(g.key) + ".go"
+		g.out = strings.ToLower(g.name) + ".go"
 	}
 	return
 }
@@ -119,17 +128,17 @@ func (g *Generator) Mutate() (err error) {
 	expect(len(g.funcs) == 0, "function was deleted")
 	expect(len(g.types) == 0, "type was deleted")
 	rename(f, map[string]string{
-		"Cache":               strings.Title(g.key) + "Cache",
-		"item":                strings.ToLower(g.key) + "Item",
-		"cache":               strings.ToLower(g.key) + "Cache",
-		"lazyTime":            strings.ToLower(g.key) + "LazyTime",
-		"stopJanitor":         strings.ToLower(g.key) + "StopJanitor",
-		"runJanitor":          strings.ToLower(g.key) + "RunJanitor",
-		"newCache":            strings.ToLower(g.key) + "NewCache",
-		"newCacheWithJanitor": strings.ToLower(g.key) + "NewCacheWithJanitor",
-		"New":                 "New" + strings.Title(g.key),
-		"NewLazy":             "NewLazy" + strings.Title(g.key),
-		"janitor":             strings.ToLower(g.key) + "Janitor",
+		"Cache":               strings.Title(g.name) + "Cache",
+		"item":                strings.ToLower(g.name) + "Item",
+		"cache":               strings.ToLower(g.name) + "Cache",
+		"lazyTime":            strings.ToLower(g.name) + "LazyTime",
+		"stopJanitor":         strings.ToLower(g.name) + "StopJanitor",
+		"runJanitor":          strings.ToLower(g.name) + "RunJanitor",
+		"newCache":            strings.ToLower(g.name) + "NewCache",
+		"newCacheWithJanitor": strings.ToLower(g.name) + "NewCacheWithJanitor",
+		"New":                 "New" + strings.Title(g.name),
+		"NewLazy":             "NewLazy" + strings.Title(g.name),
+		"janitor":             strings.ToLower(g.name) + "Janitor",
 	})
 	f.Name.Name = g.pkg
 	g.file = f
@@ -153,14 +162,14 @@ func (g *Generator) Gen() (err error) {
 func (g *Generator) Types() map[string]func(*ast.TypeSpec) {
 	return map[string]func(*ast.TypeSpec){
 		"item": func(t *ast.TypeSpec) {
-			l := t.Type.(*ast.StructType).Fields.List[0]
-			l.Type = expr(g.key, l.Type.Pos())
 			g.replaceItem(t.Type)
 		},
-		"Cache":    func(t *ast.TypeSpec) {},
-		"cache":    func(t *ast.TypeSpec) {},
-		"lazyTime": func(*ast.TypeSpec) {},
-		"janitor":  func(*ast.TypeSpec) {},
+		"lockedMap":    func(t *ast.TypeSpec) {},
+		"stringStruct": func(t *ast.TypeSpec) {},
+		"Cache":        func(t *ast.TypeSpec) {},
+		"cache":        func(t *ast.TypeSpec) {},
+		"lazyTime":     func(*ast.TypeSpec) {},
+		"janitor":      func(*ast.TypeSpec) {},
 	}
 }
 
@@ -180,9 +189,6 @@ func (g *Generator) Funcs() map[string]func(*ast.FuncDecl) {
 			g.replaceItem(f.Type.Params)
 		},
 		"Add": func(f *ast.FuncDecl) {
-			g.replaceItem(f.Type.Params)
-		},
-		"Replace": func(f *ast.FuncDecl) {
 			g.replaceItem(f.Type.Params)
 		},
 		"Get": func(f *ast.FuncDecl) {
@@ -205,6 +211,10 @@ func (g *Generator) Funcs() map[string]func(*ast.FuncDecl) {
 		"newCacheWithJanitor": nop,
 		"New":                 nop,
 		"NewLazy":             nop,
+		"memhash":             nop,
+		"memHash":             nop,
+		"memHashString":       nop,
+		"keyToHash":           nop,
 	}
 }
 
