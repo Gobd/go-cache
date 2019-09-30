@@ -17,14 +17,6 @@ type item struct {
 	Expiration int64
 }
 
-// Returns true if the item has expired.
-func (item item) Expired() bool {
-	if item.Expiration == 0 {
-		return false
-	}
-	return nanoTime() > item.Expiration
-}
-
 const (
 	numShards uint64 = 256
 	// For use with functions that take an expiration time.
@@ -100,7 +92,7 @@ func (c *cache) Delete(k interface{}) {
 	key := keyToHash(k)
 	idx := key % numShards
 	c.items[idx].Lock()
-	delete(c.items[idx].data, keyToHash(k))
+	delete(c.items[idx].data, key)
 	c.items[idx].Unlock()
 }
 
@@ -225,7 +217,7 @@ type stringStruct struct {
 //go:linkname memhash runtime.memhash
 func memhash(p unsafe.Pointer, h, s uintptr) uintptr
 
-// stringStruct is the hash function used by go map, it utilizes available hardware instructions
+// memhash is the hash function used by go map, it utilizes available hardware instructions
 // (behaves as aeshash if aes instruction is available).
 // NOTE: The hash seed changes for every process. So, this cannot be used as a persistent hash.
 

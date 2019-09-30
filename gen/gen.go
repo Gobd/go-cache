@@ -174,7 +174,6 @@ func (g *Generator) Types() map[string]func(*ast.TypeSpec) {
 func (g *Generator) Funcs() map[string]func(*ast.FuncDecl) {
 	nop := func(*ast.FuncDecl) {}
 	return map[string]func(*ast.FuncDecl){
-		"Expired": nop,
 		"Set": func(f *ast.FuncDecl) {
 			g.replaceItem(f.Type.Params)
 		},
@@ -195,8 +194,6 @@ func (g *Generator) Funcs() map[string]func(*ast.FuncDecl) {
 		"newCacheWithJanitor": nop,
 		"New":                 nop,
 		"memhash":             nop,
-		"memHash":             nop,
-		"memHashString":       nop,
 		"keyToHash":           nop,
 		"nanoTime":            nop,
 	}

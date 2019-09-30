@@ -10,7 +10,7 @@ safely used by multiple goroutines.
 
 # Changes from the original
 
-Removed Increment, Decrement, Add, GetWithExpiration, Replace, Save, Load, Newfrom.
+Removed Increment, Decrement, Add, GetWithExpiration, Expired, Replace, Save, Load, Newfrom.
 
 Keys are now interfaces rather than strings. These will be internally hashed with
 code from Ristretto into a uint64. Previously the cache map was map[string]interface{}
