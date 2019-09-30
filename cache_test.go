@@ -104,38 +104,6 @@ func TestCacheTimes(t *testing.T) {
 	}
 }
 
-func TestLazyCacheTimes(t *testing.T) {
-	var found bool
-
-	tc := NewLazy(50*time.Millisecond, time.Second*time.Millisecond, 60*time.Millisecond)
-	tc.Set("a", 1, DefaultExpiration)
-	tc.Set("b", 2, NoExpiration)
-	tc.Set("c", 3, 20*time.Millisecond)
-
-	<-time.After(20 * time.Millisecond)
-	_, found = tc.Get("c")
-	if !found {
-		t.Error("Didn't find c")
-	}
-
-	<-time.After(40 * time.Millisecond)
-	_, exp, found := tc.GetWithExpiration("c")
-	if found {
-		t.Error("Found c when it should have been automatically deleted", exp)
-	}
-
-	<-time.After(5 * time.Millisecond)
-	_, found = tc.Get("a")
-	if found {
-		t.Error("Found a when it should have been automatically deleted")
-	}
-
-	_, found = tc.Get("b")
-	if !found {
-		t.Error("Did not find b even though it was set to never expire")
-	}
-}
-
 func TestStorePointerToStruct(t *testing.T) {
 	tc := New(DefaultExpiration, 0)
 	tc.Set("foo", &TestStruct{Num: 1}, DefaultExpiration)
@@ -331,125 +299,6 @@ func BenchmarkDeleteExpiredLoop(b *testing.B) {
 	}
 }
 
-func BenchmarkLazyCacheGetExpiring(b *testing.B) {
-	benchmarkLazyCacheGet(b, 5*time.Minute)
-}
-
-func BenchmarkLazyCacheGetNotExpiring(b *testing.B) {
-	benchmarkLazyCacheGet(b, NoExpiration)
-}
-
-func benchmarkLazyCacheGet(b *testing.B, exp time.Duration) {
-	b.StopTimer()
-	tc := NewLazy(exp, time.Second, time.Second*2)
-	tc.Set("foo", "bar", DefaultExpiration)
-	b.StartTimer()
-	for i := 0; i < b.N; i++ {
-		tc.Get("foo")
-	}
-}
-
-func BenchmarkLazyCacheGetConcurrentExpiring(b *testing.B) {
-	benchmarkLazyCacheGetConcurrent(b, 5*time.Minute)
-}
-
-func BenchmarkLazyCacheGetConcurrentNotExpiring(b *testing.B) {
-	benchmarkLazyCacheGetConcurrent(b, NoExpiration)
-}
-
-func benchmarkLazyCacheGetConcurrent(b *testing.B, exp time.Duration) {
-	b.StopTimer()
-	tc := NewLazy(exp, time.Second, time.Second*2)
-	tc.Set("foo", "bar", DefaultExpiration)
-	wg := new(sync.WaitGroup)
-	workers := runtime.NumCPU()
-	each := b.N / workers
-	wg.Add(workers)
-	b.StartTimer()
-	for i := 0; i < workers; i++ {
-		go func() {
-			for j := 0; j < each; j++ {
-				tc.Get("foo")
-			}
-			wg.Done()
-		}()
-	}
-	wg.Wait()
-}
-
-func BenchmarkLazyCacheGetManyConcurrentExpiring(b *testing.B) {
-	benchmarkLazyCacheGetManyConcurrent(b, 5*time.Minute)
-}
-
-func BenchmarkLazyCacheGetManyConcurrentNotExpiring(b *testing.B) {
-	benchmarkLazyCacheGetManyConcurrent(b, NoExpiration)
-}
-
-func benchmarkLazyCacheGetManyConcurrent(b *testing.B, exp time.Duration) {
-	// This is the same as BenchmarkCacheGetConcurrent
-	b.StopTimer()
-	n := 10000
-	tc := NewLazy(exp, time.Second, time.Second*2)
-	keys := make([]string, n)
-	for i := 0; i < n; i++ {
-		k := "foo" + strconv.Itoa(n)
-		keys[i] = k
-		tc.Set(k, "bar", DefaultExpiration)
-	}
-	each := b.N / n
-	wg := new(sync.WaitGroup)
-	wg.Add(n)
-	for _, v := range keys {
-		go func(k string) {
-			for j := 0; j < each; j++ {
-				tc.Get(k)
-			}
-			wg.Done()
-		}(v)
-	}
-	b.StartTimer()
-	wg.Wait()
-}
-
-func BenchmarkLazyCacheSetExpiring(b *testing.B) {
-	benchmarkLazyCacheSet(b, 5*time.Minute)
-}
-
-func BenchmarkLazyCacheSetNotExpiring(b *testing.B) {
-	benchmarkLazyCacheSet(b, NoExpiration)
-}
-
-func benchmarkLazyCacheSet(b *testing.B, exp time.Duration) {
-	b.StopTimer()
-	tc := NewLazy(exp, time.Second, time.Second*2)
-	b.StartTimer()
-	for i := 0; i < b.N; i++ {
-		tc.Set("foo", "bar", DefaultExpiration)
-	}
-}
-
-func BenchmarkLazyCacheSetDelete(b *testing.B) {
-	b.StopTimer()
-	tc := NewLazy(DefaultExpiration, time.Second, time.Second*2)
-	b.StartTimer()
-	for i := 0; i < b.N; i++ {
-		tc.Set("foo", "bar", DefaultExpiration)
-		tc.Delete("foo")
-	}
-}
-
-func BenchmarkLazyDeleteExpiredLoop(b *testing.B) {
-	b.StopTimer()
-	tc := NewLazy(5*time.Minute, time.Second, time.Second*2)
-	for i := 0; i < 100000; i++ {
-		tc.set(strconv.Itoa(i), "bar", DefaultExpiration)
-	}
-	b.StartTimer()
-	for i := 0; i < b.N; i++ {
-		tc.DeleteExpired()
-	}
-}
-
 func TestGetWithExpiration(t *testing.T) {
 	tc := New(DefaultExpiration, 0)
 
@@ -540,7 +389,7 @@ func TestGetWithExpiration(t *testing.T) {
 	if expiration.UnixNano() != tc.items[idx].data[key].Expiration {
 		t.Error("expiration for e is not the correct time")
 	}
-	if expiration.UnixNano() < time.Now().UnixNano() {
+	if expiration.UnixNano() < nanoTime() {
 		t.Error("expiration for e is in the past")
 	}
 }

@@ -23,7 +23,7 @@ func (item item) Expired() bool {
 	if item.Expiration == 0 {
 		return false
 	}
-	return time.Now().UnixNano() > item.Expiration
+	return nanoTime() > item.Expiration
 }
 
 const (
@@ -43,24 +43,8 @@ type Cache struct {
 
 type cache struct {
 	defaultExpiration time.Duration
-	now               func() time.Time
 	items             []*lockedMap
 	janitor           *janitor
-}
-
-type lazyTime struct {
-	time   time.Time
-	ticker *time.Ticker
-}
-
-func (l *lazyTime) now() time.Time {
-	select {
-	case <-l.ticker.C:
-		l.time = time.Now()
-		return l.time
-	default:
-		return l.time
-	}
 }
 
 // Add an item to the cache, replacing any existing item. If the duration is -1,
@@ -72,7 +56,7 @@ func (c *cache) Set(k interface{}, x interface{}, d time.Duration) {
 		d = c.defaultExpiration
 	}
 	if d > 0 {
-		e = c.now().Add(d).UnixNano()
+		e = nanoTime() + d.Nanoseconds()
 	}
 	key := keyToHash(k)
 	idx := key % numShards
@@ -92,7 +76,7 @@ func (c *cache) set(k interface{}, x interface{}, d time.Duration) {
 		d = c.defaultExpiration
 	}
 	if d > 0 {
-		e = c.now().Add(d).UnixNano()
+		e = nanoTime() + d.Nanoseconds()
 	}
 	key := keyToHash(k)
 	idx := key % numShards
@@ -137,7 +121,7 @@ func (c *cache) Get(k interface{}) (value interface{}, ok bool) {
 		return
 	}
 	if item.Expiration > 0 {
-		if c.now().UnixNano() > item.Expiration {
+		if nanoTime() > item.Expiration {
 			c.items[idx].RUnlock()
 			return
 		}
@@ -162,7 +146,7 @@ func (c *cache) GetWithExpiration(k interface{}) (value interface{}, exp time.Ti
 	}
 
 	if item.Expiration > 0 {
-		if c.now().UnixNano() > item.Expiration {
+		if nanoTime() > item.Expiration {
 			c.items[idx].RUnlock()
 			return
 		}
@@ -188,7 +172,7 @@ func (c *cache) get(k interface{}) (value interface{}, ok bool) {
 	}
 	// "Inlining" of Expired
 	if item.Expiration > 0 {
-		if c.now().UnixNano() > item.Expiration {
+		if nanoTime() > item.Expiration {
 			return
 		}
 	}
@@ -206,7 +190,7 @@ func (c *cache) Delete(k interface{}) {
 
 // Delete all expired items from the cache.
 func (c *cache) DeleteExpired() {
-	now := c.now().UnixNano()
+	now := nanoTime()
 	for i := range c.items {
 		c.items[i].Lock()
 		for j := range c.items[i].data {
@@ -271,7 +255,7 @@ func runJanitor(c *cache, ci time.Duration) {
 	go j.Run(c)
 }
 
-func newCache(de time.Duration, ti time.Duration) *cache {
+func newCache(de time.Duration) *cache {
 	if de == 0 {
 		de = -1
 	}
@@ -283,20 +267,11 @@ func newCache(de time.Duration, ti time.Duration) *cache {
 		sm[i] = &lockedMap{data: make(map[uint64]item)}
 	}
 	c.items = sm
-	if ti <= 0 {
-		c.now = time.Now
-	} else {
-		l := lazyTime{
-			time:   time.Now(),
-			ticker: time.NewTicker(ti),
-		}
-		c.now = l.now
-	}
 	return c
 }
 
-func newCacheWithJanitor(de time.Duration, ci time.Duration, ti time.Duration) *Cache {
-	c := newCache(de, ti)
+func newCacheWithJanitor(de time.Duration, ci time.Duration) *Cache {
+	c := newCache(de)
 	// This trick ensures that the janitor goroutine (which--granted it
 	// was enabled--is running DeleteExpired on c forever) does not keep
 	// the returned C object from being garbage collected. When it is
@@ -316,21 +291,14 @@ func newCacheWithJanitor(de time.Duration, ci time.Duration, ti time.Duration) *
 // manually. If the cleanup interval is less than one, expired items are not
 // deleted from the cache before calling c.DeleteExpired().
 func New(defaultExpiration, cleanupInterval time.Duration) *Cache {
-	return newCacheWithJanitor(defaultExpiration, cleanupInterval, 0)
-}
-
-// Return a new cache with a given default expiration duration, cleanup,
-// and time.Now() interval. This will calculate time.Now() every timeNowInterval
-// rather than on every set & get. This means items won't be evicted as quickly
-// but results in possibly performance. If the expiration duration is less
-// than one, the items in the cache never expire (by default),
-// and must be deleted manually. If the cleanup interval is less than one,
-// expired items are not deleted from the cache before calling c.DeleteExpired().
-func NewLazy(defaultExpiration, cleanupInterval, timeNowInterval time.Duration) *Cache {
-	return newCacheWithJanitor(defaultExpiration, cleanupInterval, timeNowInterval)
+	return newCacheWithJanitor(defaultExpiration, cleanupInterval)
 }
 
 // functions below taken from https://github.com/dgraph-io/ristretto
+
+// nanoTime returns the current time in nanoseconds from a monotonic clock.
+//go:linkname nanoTime runtime.nanotime
+func nanoTime() int64
 
 type stringStruct struct {
 	str unsafe.Pointer

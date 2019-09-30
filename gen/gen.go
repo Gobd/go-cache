@@ -131,13 +131,11 @@ func (g *Generator) Mutate() (err error) {
 		"Cache":               strings.Title(g.name) + "Cache",
 		"item":                strings.ToLower(g.name) + "Item",
 		"cache":               strings.ToLower(g.name) + "Cache",
-		"lazyTime":            strings.ToLower(g.name) + "LazyTime",
 		"stopJanitor":         strings.ToLower(g.name) + "StopJanitor",
 		"runJanitor":          strings.ToLower(g.name) + "RunJanitor",
 		"newCache":            strings.ToLower(g.name) + "NewCache",
 		"newCacheWithJanitor": strings.ToLower(g.name) + "NewCacheWithJanitor",
 		"New":                 "New" + strings.Title(g.name),
-		"NewLazy":             "NewLazy" + strings.Title(g.name),
 		"janitor":             strings.ToLower(g.name) + "Janitor",
 	})
 	f.Name.Name = g.pkg
@@ -168,7 +166,6 @@ func (g *Generator) Types() map[string]func(*ast.TypeSpec) {
 		"stringStruct": func(t *ast.TypeSpec) {},
 		"Cache":        func(t *ast.TypeSpec) {},
 		"cache":        func(t *ast.TypeSpec) {},
-		"lazyTime":     func(*ast.TypeSpec) {},
 		"janitor":      func(*ast.TypeSpec) {},
 	}
 }
@@ -178,7 +175,6 @@ func (g *Generator) Funcs() map[string]func(*ast.FuncDecl) {
 	nop := func(*ast.FuncDecl) {}
 	return map[string]func(*ast.FuncDecl){
 		"Expired": nop,
-		"now":     nop,
 		"Set": func(f *ast.FuncDecl) {
 			g.replaceItem(f.Type.Params)
 		},
@@ -210,11 +206,11 @@ func (g *Generator) Funcs() map[string]func(*ast.FuncDecl) {
 		"newCache":            nop,
 		"newCacheWithJanitor": nop,
 		"New":                 nop,
-		"NewLazy":             nop,
 		"memhash":             nop,
 		"memHash":             nop,
 		"memHashString":       nop,
 		"keyToHash":           nop,
+		"nanoTime":            nop,
 	}
 }
 

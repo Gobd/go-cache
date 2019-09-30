@@ -10,10 +10,7 @@ safely used by multiple goroutines.
 
 # Changes from the original
 
-Removed increment, decrement, replace, save, load, newfrom. Added a `NewLazy` function
-that creates a cache that only updates `time.Now()` every `timeNowInterval`
-might be faster than the original or not. The benchmarks in the package show
-it to be generally faster but sometimes slower. Hasn't been in production so not really sure.
+Removed increment, decrement, replace, save, load, newfrom.
 
 Keys are now interfaces rather than strings. These will be internally hashed with
 code from Ristretto into a uint64. Previously the cache map was map[string]interface{}
@@ -45,8 +42,8 @@ func main() {
 	// purges expired items every 10 minutes
 	c := cache.New(5*time.Minute, 10*time.Minute)
 
-	// Set the value of the key "foo" to "bar", with the default expiration time
-	c.Set("foo", "bar", cache.DefaultExpiration)
+	// Set the value of the key 1234 to "bar", with the default expiration time
+	c.SetDefault(1234, "bar")
 
 	// Set the value of the key "baz" to 42, with no expiration time
 	// (the item won't be removed until it is re-set, or removed using
@@ -64,13 +61,13 @@ func main() {
 	// take arbitrary types, (i.e. interface{}). The simplest way to do this for
 	// values which will only be used once--e.g. for passing to another
 	// function--is:
-	foo, found := c.Get("foo")
+	foo, found := c.Get(1234)
 	if found {
 		MyFunction(foo.(string))
 	}
 
 	// This gets tedious if the value is used several times in the same function.
-	// You might do either of the following instead:
+	// You might do either of the following instead (or generate a typed cache):
 	if x, found := c.Get("foo"); found {
 		foo := x.(string)
 		// ...
@@ -84,7 +81,7 @@ func main() {
 	// foo can then be passed around freely as a string
 
 	// Want performance? Store pointers!
-	c.Set("foo", &MyStruct, cache.DefaultExpiration)
+	c.SetDefault("foo", &MyStruct)
 	if x, found := c.Get("foo"); found {
 		foo := x.(*MyStruct)
 			// ...
