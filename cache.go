@@ -37,7 +37,7 @@ type Cache struct {
 type cache struct {
 	defaultExpiration time.Duration
 	now               func() time.Time
-	items             map[string]Item
+	items             map[uint64]Item
 	mu                sync.RWMutex
 	janitor           *janitor
 }
@@ -57,10 +57,9 @@ func (l *lazyTime) now() time.Time {
 	}
 }
 
-// Add an item to the cache, replacing any existing item. If the duration is 0
-// (DefaultExpiration), the cache's default expiration time is used. If it is -1
-// (NoExpiration), the item never expires.
-func (c *cache) Set(k string, x interface{}, d time.Duration) {
+// Add an item to the cache, replacing any existing item. If the duration is -1,
+// the item never expires. Prefer SetDefault.
+func (c *cache) Set(k interface{}, x interface{}, d time.Duration) {
 	// "Inlining" of set
 	var e int64
 	if d == DefaultExpiration {
@@ -70,7 +69,7 @@ func (c *cache) Set(k string, x interface{}, d time.Duration) {
 		e = c.now().Add(d).UnixNano()
 	}
 	c.mu.Lock()
-	c.items[k] = Item{
+	c.items[keyToHash(k)] = Item{
 		Object:     x,
 		Expiration: e,
 	}
@@ -79,7 +78,7 @@ func (c *cache) Set(k string, x interface{}, d time.Duration) {
 	c.mu.Unlock()
 }
 
-func (c *cache) set(k string, x interface{}, d time.Duration) {
+func (c *cache) set(k interface{}, x interface{}, d time.Duration) {
 	var e int64
 	if d == DefaultExpiration {
 		d = c.defaultExpiration
@@ -87,7 +86,7 @@ func (c *cache) set(k string, x interface{}, d time.Duration) {
 	if d > 0 {
 		e = c.now().Add(d).UnixNano()
 	}
-	c.items[k] = Item{
+	c.items[keyToHash(k)] = Item{
 		Object:     x,
 		Expiration: e,
 	}
@@ -95,13 +94,13 @@ func (c *cache) set(k string, x interface{}, d time.Duration) {
 
 // Add an item to the cache, replacing any existing item, using the default
 // expiration.
-func (c *cache) SetDefault(k string, x interface{}) {
-	c.Set(k, x, DefaultExpiration)
+func (c *cache) SetDefault(k interface{}, x interface{}) {
+	c.Set(k, x, c.defaultExpiration)
 }
 
 // Add an item to the cache only if an item doesn't already exist for the given
 // key, or if the existing item has expired. Returns an error otherwise.
-func (c *cache) Add(k string, x interface{}, d time.Duration) error {
+func (c *cache) Add(k interface{}, x interface{}, d time.Duration) error {
 	c.mu.Lock()
 	_, found := c.get(k)
 	if found {
@@ -115,7 +114,7 @@ func (c *cache) Add(k string, x interface{}, d time.Duration) error {
 
 // Set a new value for the cache key only if it already exists, and the existing
 // item hasn't expired. Returns an error otherwise.
-func (c *cache) Replace(k string, x interface{}, d time.Duration) error {
+func (c *cache) Replace(k interface{}, x interface{}, d time.Duration) error {
 	c.mu.Lock()
 	_, found := c.get(k)
 	if !found {
@@ -129,18 +128,18 @@ func (c *cache) Replace(k string, x interface{}, d time.Duration) error {
 
 // Get an item from the cache. Returns the item or nil, and a bool indicating
 // whether the key was found.
-func (c *cache) Get(k string) (interface{}, bool) {
+func (c *cache) Get(k interface{}) (value interface{}, ok bool) {
 	c.mu.RLock()
 	// "Inlining" of get and Expired
-	item, found := c.items[k]
+	item, found := c.items[keyToHash(k)]
 	if !found {
 		c.mu.RUnlock()
-		return nil, false
+		return
 	}
 	if item.Expiration > 0 {
 		if c.now().UnixNano() > item.Expiration {
 			c.mu.RUnlock()
-			return nil, false
+			return
 		}
 	}
 	c.mu.RUnlock()
@@ -151,19 +150,19 @@ func (c *cache) Get(k string) (interface{}, bool) {
 // It returns the item or nil, the expiration time if one is set (if the item
 // never expires a zero value for time.Time is returned), and a bool indicating
 // whether the key was found.
-func (c *cache) GetWithExpiration(k string) (interface{}, time.Time, bool) {
+func (c *cache) GetWithExpiration(k interface{}) (value interface{}, exp time.Time, ok bool) {
 	c.mu.RLock()
 	// "Inlining" of get and Expired
-	item, found := c.items[k]
+	item, found := c.items[keyToHash(k)]
 	if !found {
 		c.mu.RUnlock()
-		return nil, time.Time{}, false
+		return
 	}
 
 	if item.Expiration > 0 {
 		if c.now().UnixNano() > item.Expiration {
 			c.mu.RUnlock()
-			return nil, time.Time{}, false
+			return
 		}
 
 		// Return the item and the expiration time
@@ -177,29 +176,25 @@ func (c *cache) GetWithExpiration(k string) (interface{}, time.Time, bool) {
 	return item.Object, time.Time{}, true
 }
 
-func (c *cache) get(k string) (interface{}, bool) {
-	item, found := c.items[k]
+func (c *cache) get(k interface{}) (value interface{}, ok bool) {
+	item, found := c.items[keyToHash(k)]
 	if !found {
-		return nil, false
+		return
 	}
 	// "Inlining" of Expired
 	if item.Expiration > 0 {
 		if c.now().UnixNano() > item.Expiration {
-			return nil, false
+			return
 		}
 	}
 	return item.Object, true
 }
 
 // Delete an item from the cache. Does nothing if the key is not in the cache.
-func (c *cache) Delete(k string) {
+func (c *cache) Delete(k interface{}) {
 	c.mu.Lock()
-	c.delete(k)
+	delete(c.items, keyToHash(k))
 	c.mu.Unlock()
-}
-
-func (c *cache) delete(k string) {
-	delete(c.items, k)
 }
 
 // Delete all expired items from the cache.
@@ -209,7 +204,7 @@ func (c *cache) DeleteExpired() {
 	for k, v := range c.items {
 		// "Inlining" of expired
 		if v.Expiration > 0 && now > v.Expiration {
-			c.delete(k)
+			delete(c.items, k)
 		}
 	}
 	c.mu.Unlock()
@@ -227,7 +222,7 @@ func (c *cache) ItemCount() int {
 // Delete all items from the cache.
 func (c *cache) Flush() {
 	c.mu.Lock()
-	c.items = map[string]Item{}
+	c.items = map[uint64]Item{}
 	c.mu.Unlock()
 }
 
@@ -262,7 +257,7 @@ func runJanitor(c *cache, ci time.Duration) {
 	go j.Run(c)
 }
 
-func newCache(de time.Duration, ti time.Duration, m map[string]Item) *cache {
+func newCache(de time.Duration, ti time.Duration, m map[uint64]Item) *cache {
 	if de == 0 {
 		de = -1
 	}
@@ -282,7 +277,7 @@ func newCache(de time.Duration, ti time.Duration, m map[string]Item) *cache {
 	return c
 }
 
-func newCacheWithJanitor(de time.Duration, ci time.Duration, ti time.Duration, m map[string]Item) *Cache {
+func newCacheWithJanitor(de time.Duration, ci time.Duration, ti time.Duration, m map[uint64]Item) *Cache {
 	c := newCache(de, ti, m)
 	// This trick ensures that the janitor goroutine (which--granted it
 	// was enabled--is running DeleteExpired on c forever) does not keep
@@ -298,12 +293,12 @@ func newCacheWithJanitor(de time.Duration, ci time.Duration, ti time.Duration, m
 }
 
 // Return a new cache with a given default expiration duration and cleanup
-// interval. If the expiration duration is less than one (or NoExpiration),
+// interval. If the expiration duration is less than one,
 // the items in the cache never expire (by default), and must be deleted
 // manually. If the cleanup interval is less than one, expired items are not
 // deleted from the cache before calling c.DeleteExpired().
 func New(defaultExpiration, cleanupInterval time.Duration) *Cache {
-	items := make(map[string]Item)
+	items := make(map[uint64]Item)
 	return newCacheWithJanitor(defaultExpiration, cleanupInterval, 0, items)
 }
 
@@ -311,10 +306,10 @@ func New(defaultExpiration, cleanupInterval time.Duration) *Cache {
 // and time.Now() interval. This will calculate time.Now() every timeNowInterval
 // rather than on every set & get. This means items won't be evicted as quickly
 // but results in possibly performance. If the expiration duration is less
-// than one (or NoExpiration), the items in the cache never expire (by default),
+// than one, the items in the cache never expire (by default),
 // and must be deleted manually. If the cleanup interval is less than one,
 // expired items are not deleted from the cache before calling c.DeleteExpired().
 func NewLazy(defaultExpiration, cleanupInterval, timeNowInterval time.Duration) *Cache {
-	items := make(map[string]Item)
+	items := make(map[uint64]Item)
 	return newCacheWithJanitor(defaultExpiration, cleanupInterval, timeNowInterval, items)
 }
