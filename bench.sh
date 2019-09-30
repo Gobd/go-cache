@@ -3,16 +3,16 @@
 set -e
 
 # How many times to run each benchmark
-COUNT=2
+COUNT=20
 FILES=("newO.txt" "oldO.txt" "shardO.txt")
 
 # Remove all files from previous runs
-rm -rf ./newO.txt ./oldO.txt /shardO.txt ./new.txt ./old.txt ./shard.txt ./old_new.txt ./old_shard.txt ./shard_new.txt ./*.txt-e
+rm -rf ./newO.txt ./oldO.txt /shardO.txt ./new.txt ./old.txt ./shard.txt ./old_new.txt ./old_shard.txt ./shard_new.txt ./*.txt-e ./*.out ./go-cache.test
 
 # Run all benchmarks
-go test -run=^$ github.com/Gobd/go-cache -count="$COUNT" -bench "BenchmarkCacheGetManyConcurrent.+" | tee ./newO.txt
-go test -run=^$ github.com/patrickmn/go-cache -count="$COUNT" -bench "BenchmarkCacheGetManyConcurrent.+" | tee ./oldO.txt
-go test -run=^$ github.com/patrickmn/go-cache -count="$COUNT" -bench "BenchmarkShardedCacheGetManyConcurrent.+" | tee ./shardO.txt
+go test -run=^$ github.com/Gobd/go-cache -cpuprofile cpuNew.out -count="$COUNT" -bench "BenchmarkCacheGetManyConcurrent.+" | tee ./newO.txt
+go test -run=^$ github.com/patrickmn/go-cache -cpuprofile cpuOld.out -count="$COUNT" -bench "BenchmarkCacheGetManyConcurrent.+" | tee ./oldO.txt
+go test -run=^$ github.com/patrickmn/go-cache -cpuprofile cpuShard.out -count="$COUNT" -bench "BenchmarkShardedCacheGetManyConcurrent.+" | tee ./shardO.txt
 
 # Clean up file so it works with benchstat
 sed -i -e 's/Sharded//g' ./shardO.txt

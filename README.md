@@ -24,16 +24,29 @@ package named cache that is cache of string (and the item stored in the cache wi
 can match, but if caching something like `map[string]interface{}` then the name can't match
 the item being cached.
 
+The original version of the below tests have a bug that makes the tests unrealistic and doesn't
+let sharding work. This bug has has been fixed in all of the below tests.
 
 patrickmn/go-cache vs Gobd/go-cache
 ```
-CacheGetManyConcurrentExpiring-8     54.4ns ± 1%  52.3ns ± 1%   -3.95%  (p=0.000 n=19+17)
-CacheGetManyConcurrentNotExpiring-8  72.8ns ± 2%  62.7ns ± 3%  -13.94%  (p=0.000 n=16+20)
+CacheGetManyConcurrentExpiring-8     52.6ns ± 5%  16.5ns ± 5%  -68.59%  (p=0.000 n=18+20)
+CacheGetManyConcurrentNotExpiring-8  59.2ns ± 2%  10.8ns ± 8%  -81.76%  (p=0.000 n=19+17)
 ```
 
-Gobd/go-cache is always faster than the original, and marginally slower then the original
-sharded implementation on `CacheGetManyConcurrentNotExpiring`. Allocations aren't shown
-because they are 0 for all.
+patrickmn/go-cache vs patrickmn/go-cache (sharded)
+```
+CacheGetManyConcurrentExpiring-8     52.6ns ± 5%  31.0ns ±14%  -41.00%  (p=0.000 n=18+19)
+CacheGetManyConcurrentNotExpiring-8  59.2ns ± 2%  13.1ns ±14%  -77.85%  (p=0.000 n=19+17)
+```
+
+patrickmn/go-cache (sharded) vs Gobd/go-cache
+```
+CacheGetManyConcurrentExpiring-8     31.0ns ±14%  16.5ns ± 5%  -46.76%  (p=0.000 n=19+20)
+CacheGetManyConcurrentNotExpiring-8  13.1ns ±14%  10.8ns ± 8%  -17.66%  (p=0.000 n=17+17)
+```
+
+Gobd/go-cache is always faster than the original & the original's sharded implementation.
+Allocations aren't shown because they are 0 for all.
 
 ### Installation
 

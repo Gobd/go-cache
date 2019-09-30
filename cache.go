@@ -64,8 +64,6 @@ func (c *cache) Set(k interface{}, x interface{}, d time.Duration) {
 		Object:     x,
 		Expiration: e,
 	}
-	// TODO: Calls to mu.Unlock are currently not deferred because defer
-	// adds ~200 ns (as of go1.)
 	c.items[idx].Unlock()
 }
 
@@ -227,33 +225,24 @@ type stringStruct struct {
 //go:linkname memhash runtime.memhash
 func memhash(p unsafe.Pointer, h, s uintptr) uintptr
 
-// memHash is the hash function used by go map, it utilizes available hardware instructions(behaves
-// as aeshash if aes instruction is available).
-// NOTE: The hash seed changes for every process. So, this cannot be used as a persistent hash.
-func memHash(data []byte) uint64 {
-	ss := (*stringStruct)(unsafe.Pointer(&data))
-	return uint64(memhash(ss.str, 0, uintptr(ss.len)))
-}
-
 // stringStruct is the hash function used by go map, it utilizes available hardware instructions
 // (behaves as aeshash if aes instruction is available).
 // NOTE: The hash seed changes for every process. So, this cannot be used as a persistent hash.
-func memHashString(str string) uint64 {
-	ss := (*stringStruct)(unsafe.Pointer(&str))
-	return uint64(memhash(ss.str, 0, uintptr(ss.len)))
-}
 
-// KeyToHash interprets the type of key and converts it to a uint64 hash.
+// keyToHash interprets the type of key and converts it to a uint64 hash.
 func keyToHash(key interface{}) uint64 {
 	switch k := key.(type) {
 	case uint64:
 		return k
 	case string:
-		return memHashString(k)
+		ss := (*stringStruct)(unsafe.Pointer(&k))
+		return uint64(memhash(ss.str, 0, uintptr(ss.len)))
 	case []byte:
-		return memHash(k)
+		ss := (*stringStruct)(unsafe.Pointer(&k))
+		return uint64(memhash(ss.str, 0, uintptr(ss.len)))
 	case byte:
-		return memHash([]byte{k})
+		ss := (*stringStruct)(unsafe.Pointer(&[]byte{k}))
+		return uint64(memhash(ss.str, 0, uintptr(ss.len)))
 	case int:
 		return uint64(k)
 	case int32:
