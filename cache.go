@@ -7,13 +7,13 @@ import (
 	"time"
 )
 
-type Item struct {
+type item struct {
 	Object     interface{}
 	Expiration int64
 }
 
 // Returns true if the item has expired.
-func (item Item) Expired() bool {
+func (item item) Expired() bool {
 	if item.Expiration == 0 {
 		return false
 	}
@@ -37,7 +37,7 @@ type Cache struct {
 type cache struct {
 	defaultExpiration time.Duration
 	now               func() time.Time
-	items             map[uint64]Item
+	items             map[uint64]item
 	mu                sync.RWMutex
 	janitor           *janitor
 }
@@ -69,7 +69,7 @@ func (c *cache) Set(k interface{}, x interface{}, d time.Duration) {
 		e = c.now().Add(d).UnixNano()
 	}
 	c.mu.Lock()
-	c.items[keyToHash(k)] = Item{
+	c.items[keyToHash(k)] = item{
 		Object:     x,
 		Expiration: e,
 	}
@@ -86,7 +86,7 @@ func (c *cache) set(k interface{}, x interface{}, d time.Duration) {
 	if d > 0 {
 		e = c.now().Add(d).UnixNano()
 	}
-	c.items[keyToHash(k)] = Item{
+	c.items[keyToHash(k)] = item{
 		Object:     x,
 		Expiration: e,
 	}
@@ -105,7 +105,7 @@ func (c *cache) Add(k interface{}, x interface{}, d time.Duration) error {
 	_, found := c.get(k)
 	if found {
 		c.mu.Unlock()
-		return fmt.Errorf("Item %s already exists", k)
+		return fmt.Errorf("item %s already exists", k)
 	}
 	c.set(k, x, d)
 	c.mu.Unlock()
@@ -119,7 +119,7 @@ func (c *cache) Replace(k interface{}, x interface{}, d time.Duration) error {
 	_, found := c.get(k)
 	if !found {
 		c.mu.Unlock()
-		return fmt.Errorf("Item %s doesn't exist", k)
+		return fmt.Errorf("item %s doesn't exist", k)
 	}
 	c.set(k, x, d)
 	c.mu.Unlock()
@@ -222,7 +222,7 @@ func (c *cache) ItemCount() int {
 // Delete all items from the cache.
 func (c *cache) Flush() {
 	c.mu.Lock()
-	c.items = map[uint64]Item{}
+	c.items = map[uint64]item{}
 	c.mu.Unlock()
 }
 
@@ -257,7 +257,7 @@ func runJanitor(c *cache, ci time.Duration) {
 	go j.Run(c)
 }
 
-func newCache(de time.Duration, ti time.Duration, m map[uint64]Item) *cache {
+func newCache(de time.Duration, ti time.Duration, m map[uint64]item) *cache {
 	if de == 0 {
 		de = -1
 	}
@@ -277,7 +277,7 @@ func newCache(de time.Duration, ti time.Duration, m map[uint64]Item) *cache {
 	return c
 }
 
-func newCacheWithJanitor(de time.Duration, ci time.Duration, ti time.Duration, m map[uint64]Item) *Cache {
+func newCacheWithJanitor(de time.Duration, ci time.Duration, ti time.Duration, m map[uint64]item) *Cache {
 	c := newCache(de, ti, m)
 	// This trick ensures that the janitor goroutine (which--granted it
 	// was enabled--is running DeleteExpired on c forever) does not keep
@@ -298,7 +298,7 @@ func newCacheWithJanitor(de time.Duration, ci time.Duration, ti time.Duration, m
 // manually. If the cleanup interval is less than one, expired items are not
 // deleted from the cache before calling c.DeleteExpired().
 func New(defaultExpiration, cleanupInterval time.Duration) *Cache {
-	items := make(map[uint64]Item)
+	items := make(map[uint64]item)
 	return newCacheWithJanitor(defaultExpiration, cleanupInterval, 0, items)
 }
 
@@ -310,6 +310,6 @@ func New(defaultExpiration, cleanupInterval time.Duration) *Cache {
 // and must be deleted manually. If the cleanup interval is less than one,
 // expired items are not deleted from the cache before calling c.DeleteExpired().
 func NewLazy(defaultExpiration, cleanupInterval, timeNowInterval time.Duration) *Cache {
-	items := make(map[uint64]Item)
+	items := make(map[uint64]item)
 	return newCacheWithJanitor(defaultExpiration, cleanupInterval, timeNowInterval, items)
 }

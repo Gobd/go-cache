@@ -2,17 +2,27 @@
 
 go-cache is an in-memory key:value store/cache similar to memcached that is
 suitable for applications running on a single machine. Its major advantage is
-that, being essentially a thread-safe `map[string]interface{}` with expiration
+that, being essentially a thread-safe `map[interface{}]interface{}` with expiration
 times, it doesn't need to serialize or transmit its contents over the network.
 
 Any object can be stored, for a given duration or forever, and the cache can be
 safely used by multiple goroutines.
+
+# Changes from the original
 
 Removed increment, decrement, save, load, newfrom. Added a `NewLazy` function
 that creates a cache that only updates `time.Now()` every `timeNowInterval`
 might be faster than the original or not. The benchmarks in the package show
 it to be generally faster but sometimes slower. Other benchmarks written to be
 more realistic show it 133x faster. Hasn't been in production so not really sure.
+
+Keys are now interfaces rather than strings. These will be internally hashed with
+code from Ristretto into a uint64. Previously the cache map was map[string]interface{}
+now it is map[uint64]interface{}.
+
+There is a code generator in the gen folder that can create typed caches. To see help
+run `go run ./gen/gen.go -h`. As an example this will create a stringCache.go file in a
+package named cache that is cache of string: `go run ./gen/gen.go -o stringCache.go -pkg cache string`
 
 ### Installation
 
