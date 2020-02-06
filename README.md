@@ -67,7 +67,7 @@ func main() {
 	c := cache.New(5*time.Minute, 10*time.Minute)
 
 	// Set the value of the key 1234 to "bar", with the default expiration time
-	c.SetDefault(1234, "bar")
+	c.SetDefault("1234", "bar")
 
 	// Set the value of the key "baz" to 42, with no expiration time
 	// (the item won't be removed until it is re-set, or removed using
@@ -85,7 +85,7 @@ func main() {
 	// take arbitrary types, (i.e. interface{}). The simplest way to do this for
 	// values which will only be used once--e.g. for passing to another
 	// function--is:
-	foo, found := c.Get(1234)
+	foo, found := c.Get("1234")
 	if found {
 		MyFunction(foo.(string))
 	}
