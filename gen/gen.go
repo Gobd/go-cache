@@ -203,20 +203,9 @@ func (g *Generator) Funcs() map[string]func(*ast.FuncDecl) {
 func (g *Generator) replaceItem(n ast.Node) { replaceIface(n, g.key) }
 
 func replaceIface(n ast.Node, s string) {
-	var skip bool // Used to skip replacing `k` interface{} with string key will remain interface{}
 	astutil.Apply(n, func(c *astutil.Cursor) bool {
 		n := c.Node()
-		if v, ok := n.(*ast.Field); ok {
-			if v.Names[0].Name == "k" {
-				skip = true
-			}
-		}
-
 		if it, ok := n.(*ast.InterfaceType); ok {
-			if skip {
-				skip = false
-				return true
-			}
 			c.Replace(expr(s, it.Interface))
 		}
 		return true

@@ -40,7 +40,7 @@ type cache struct {
 
 // Add an item to the cache, replacing any existing item. If the duration is -1,
 // the item never expires. Prefer SetDefault.
-func (c *cache) Set(k interface{}, x interface{}, d time.Duration) {
+func (c *cache) Set(k string, x interface{}, d time.Duration) {
 	// "Inlining" of set
 	var e int64
 	if d == DefaultExpiration {
@@ -61,13 +61,13 @@ func (c *cache) Set(k interface{}, x interface{}, d time.Duration) {
 
 // Add an item to the cache, replacing any existing item, using the default
 // expiration.
-func (c *cache) SetDefault(k interface{}, x interface{}) {
+func (c *cache) SetDefault(k string, x interface{}) {
 	c.Set(k, x, c.defaultExpiration)
 }
 
 // Get an item from the cache. Returns the item or nil, and a bool indicating
 // whether the key was found.
-func (c *cache) Get(k interface{}) (value interface{}, ok bool) {
+func (c *cache) Get(k string) (value interface{}, ok bool) {
 	key := keyToHash(k)
 	idx := key % numShards
 	c.items[idx].RLock()
@@ -88,7 +88,7 @@ func (c *cache) Get(k interface{}) (value interface{}, ok bool) {
 }
 
 // Delete an item from the cache. Does nothing if the key is not in the cache.
-func (c *cache) Delete(k interface{}) {
+func (c *cache) Delete(k string) {
 	key := keyToHash(k)
 	idx := key % numShards
 	c.items[idx].Lock()
@@ -222,28 +222,7 @@ func memhash(p unsafe.Pointer, h, s uintptr) uintptr
 // NOTE: The hash seed changes for every process. So, this cannot be used as a persistent hash.
 
 // keyToHash interprets the type of key and converts it to a uint64 hash.
-func keyToHash(key interface{}) uint64 {
-	switch k := key.(type) {
-	case uint64:
-		return k
-	case string:
-		ss := (*stringStruct)(unsafe.Pointer(&k))
-		return uint64(memhash(ss.str, 0, uintptr(ss.len)))
-	case []byte:
-		ss := (*stringStruct)(unsafe.Pointer(&k))
-		return uint64(memhash(ss.str, 0, uintptr(ss.len)))
-	case byte:
-		ss := (*stringStruct)(unsafe.Pointer(&[]byte{k}))
-		return uint64(memhash(ss.str, 0, uintptr(ss.len)))
-	case int:
-		return uint64(k)
-	case int32:
-		return uint64(k)
-	case uint32:
-		return uint64(k)
-	case int64:
-		return uint64(k)
-	default:
-		panic("Key type not supported")
-	}
+func keyToHash(key string) uint64 {
+	ss := (*stringStruct)(unsafe.Pointer(&key))
+	return uint64(memhash(ss.str, 0, uintptr(ss.len)))
 }
