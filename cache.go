@@ -1,10 +1,10 @@
 package cache
 
 import (
+	"hash/maphash"
 	"runtime"
 	"sync"
 	"time"
-	"unsafe"
 )
 
 type lockedMap struct {
@@ -19,9 +19,9 @@ type item struct {
 
 const (
 	numShards uint64 = 256
-	// For use with functions that take an expiration time.
+	// NoExpiration is for use with functions that take an expiration time.
 	NoExpiration time.Duration = -1
-	// For use with functions that take an expiration time. Equivalent to
+	// DefaultExpiration is for use with functions that take an expiration time. Equivalent to
 	// passing in the same expiration duration as was given to New() or
 	// NewFrom() when the cache was created (e.g. 5 minutes.)
 	DefaultExpiration time.Duration = 0
@@ -36,6 +36,7 @@ type cache struct {
 	defaultExpiration time.Duration
 	items             []*lockedMap
 	janitor           *janitor
+	hp                *sync.Pool
 }
 
 // Add an item to the cache, replacing any existing item. If the duration is -1,
@@ -49,7 +50,7 @@ func (c *cache) Set(k string, x interface{}, d time.Duration) {
 	if d > 0 {
 		e = nanoTime() + d.Nanoseconds()
 	}
-	key := keyToHash(k)
+	key := c.keyToHash(k)
 	idx := key % numShards
 	c.items[idx].Lock()
 	c.items[idx].data[key] = item{
@@ -68,7 +69,7 @@ func (c *cache) SetDefault(k string, x interface{}) {
 // Get an item from the cache. Returns the item or nil, and a bool indicating
 // whether the key was found.
 func (c *cache) Get(k string) (value interface{}, ok bool) {
-	key := keyToHash(k)
+	key := c.keyToHash(k)
 	idx := key % numShards
 	c.items[idx].RLock()
 	// "Inlining" of get and Expired
@@ -77,11 +78,9 @@ func (c *cache) Get(k string) (value interface{}, ok bool) {
 		c.items[idx].RUnlock()
 		return
 	}
-	if item.Expiration > 0 {
-		if nanoTime() > item.Expiration {
-			c.items[idx].RUnlock()
-			return
-		}
+	if item.Expiration > 0 && nanoTime() > item.Expiration {
+		c.items[idx].RUnlock()
+		return
 	}
 	c.items[idx].RUnlock()
 	return item.Object, true
@@ -89,7 +88,7 @@ func (c *cache) Get(k string) (value interface{}, ok bool) {
 
 // Delete an item from the cache. Does nothing if the key is not in the cache.
 func (c *cache) Delete(k string) {
-	key := keyToHash(k)
+	key := c.keyToHash(k)
 	idx := key % numShards
 	c.items[idx].Lock()
 	delete(c.items[idx].data, key)
@@ -167,9 +166,20 @@ func newCache(de time.Duration) *cache {
 	if de == 0 {
 		de = -1
 	}
+
+	ss := maphash.MakeSeed()
+
 	c := &cache{
 		defaultExpiration: de,
+		hp: &sync.Pool{
+			New: func() interface{} {
+				h := &maphash.Hash{}
+				h.SetSeed(ss)
+				return h
+			},
+		},
 	}
+
 	sm := make([]*lockedMap, int(numShards))
 	for i := range sm {
 		sm[i] = &lockedMap{data: make(map[uint64]item)}
@@ -193,7 +203,7 @@ func newCacheWithJanitor(de time.Duration, ci time.Duration) *Cache {
 	return C
 }
 
-// Return a new cache with a given default expiration duration and cleanup
+// New returns a new cache with a given default expiration duration and cleanup
 // interval. If the expiration duration is less than one,
 // the items in the cache never expire (by default), and must be deleted
 // manually. If the cleanup interval is less than one, expired items are not
@@ -202,27 +212,17 @@ func New(defaultExpiration, cleanupInterval time.Duration) *Cache {
 	return newCacheWithJanitor(defaultExpiration, cleanupInterval)
 }
 
-// functions below taken from https://github.com/dgraph-io/ristretto
-
 // nanoTime returns the current time in nanoseconds from a monotonic clock.
 //go:linkname nanoTime runtime.nanotime
 func nanoTime() int64
 
-type stringStruct struct {
-	str unsafe.Pointer
-	len int
-}
-
-//go:noescape
-//go:linkname memhash runtime.memhash
-func memhash(p unsafe.Pointer, h, s uintptr) uintptr
-
-// memhash is the hash function used by go map, it utilizes available hardware instructions
-// (behaves as aeshash if aes instruction is available).
 // NOTE: The hash seed changes for every process. So, this cannot be used as a persistent hash.
-
 // keyToHash interprets the type of key and converts it to a uint64 hash.
-func keyToHash(key string) uint64 {
-	ss := (*stringStruct)(unsafe.Pointer(&key))
-	return uint64(memhash(ss.str, 0, uintptr(ss.len)))
+func (c *cache) keyToHash(key string) uint64 {
+	h := c.hp.Get().(*maphash.Hash)
+	h.Reset()
+	h.WriteString(key)
+	sum := h.Sum64()
+	c.hp.Put(h)
+	return sum
 }
